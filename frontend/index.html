@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ServeML - One-Click ML Model Deployment</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>ServeML</h1>
+            <p class="tagline">Deploy your ML model in one click</p>
+        </header>
+
+        <main>
+            <!-- Upload Section -->
+            <section id="upload-section" class="card">
+                <h2>Deploy New Model</h2>
+                <form id="deploy-form">
+                    <div class="form-group">
+                        <label for="model-name">Model Name (optional)</label>
+                        <input 
+                            type="text" 
+                            id="model-name" 
+                            placeholder="my-awesome-model"
+                            class="form-control"
+                        >
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="model-file">Model File (.pkl)</label>
+                        <input 
+                            type="file" 
+                            id="model-file" 
+                            accept=".pkl" 
+                            required
+                            class="form-control file-input"
+                        >
+                        <small class="help-text">Upload your pickled scikit-learn, PyTorch, or TensorFlow model</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="requirements-file">Requirements File</label>
+                        <input 
+                            type="file" 
+                            id="requirements-file" 
+                            accept=".txt" 
+                            required
+                            class="form-control file-input"
+                        >
+                        <small class="help-text">Include all Python dependencies needed by your model</small>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary" id="deploy-btn">
+                        Deploy Model
+                    </button>
+                </form>
+            </section>
+
+            <!-- Status Section (Hidden by default) -->
+            <section id="status-section" class="card" style="display: none;">
+                <h2>Deployment Status</h2>
+                <div class="status-content">
+                    <div class="status-item">
+                        <strong>Deployment ID:</strong>
+                        <span id="deployment-id"></span>
+                    </div>
+                    <div class="status-item">
+                        <strong>Name:</strong>
+                        <span id="deployment-name"></span>
+                    </div>
+                    <div class="status-item">
+                        <strong>Status:</strong>
+                        <span id="deployment-status" class="status-badge"></span>
+                    </div>
+                    <div class="status-item" id="endpoint-item" style="display: none;">
+                        <strong>Endpoint:</strong>
+                        <span id="deployment-endpoint"></span>
+                    </div>
+                    <div class="progress-bar" id="progress-bar">
+                        <div class="progress-fill"></div>
+                    </div>
+                </div>
+                <button class="btn btn-secondary" onclick="resetForm()">Deploy Another Model</button>
+            </section>
+
+            <!-- Deployments List -->
+            <section id="deployments-section" class="card">
+                <h2>Your Deployments</h2>
+                <div id="deployments-list" class="deployments-list">
+                    <p class="empty-state">No deployments yet. Deploy your first model above!</p>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>ServeML - Making ML deployment simple</p>
+        </footer>
+    </div>
+
+    <!-- Toast notification -->
+    <div id="toast" class="toast"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>
