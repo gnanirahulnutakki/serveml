@@ -217,9 +217,65 @@ async function deleteDeployment(deploymentId) {
     }
 }
 
-// Test model (placeholder for future implementation)
-function testModel(deploymentId) {
-    showToast('Model testing coming soon!', 'info');
+// Test model
+async function testModel(deploymentId) {
+    // Get deployment details first
+    try {
+        const response = await fetch(`${API_URL}/api/v1/deployments/${deploymentId}`);
+        const deployment = await response.json();
+        
+        if (!deployment.model_metadata) {
+            showToast('Model metadata not available', 'error');
+            return;
+        }
+        
+        // Generate test data based on model metadata
+        let testData = {};
+        if (deployment.model_metadata.input_shape) {
+            const inputSize = deployment.model_metadata.input_shape[0] || 4;
+            testData = {
+                data: Array(inputSize).fill(0).map(() => Math.random())
+            };
+        } else {
+            // Default test data
+            testData = {
+                data: [5.1, 3.5, 1.4, 0.2]  // Iris dataset sample
+            };
+        }
+        
+        // Show loading
+        showToast('Testing model...', 'info');
+        
+        // Call test endpoint
+        const testResponse = await fetch(`${API_URL}/api/v1/test-model`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                deployment_id: deploymentId,
+                data: testData.data
+            })
+        });
+        
+        if (!testResponse.ok) {
+            throw new Error('Test failed');
+        }
+        
+        const result = await testResponse.json();
+        
+        // Show result in a nice format
+        const resultMessage = `
+Prediction: ${JSON.stringify(result.output.prediction)}
+Model Type: ${result.output.model_type}
+${result.output.probability ? `Confidence: ${JSON.stringify(result.output.probability)}` : ''}
+        `.trim();
+        
+        alert(resultMessage);
+        
+    } catch (error) {
+        showToast('Model test failed: ' + error.message, 'error');
+    }
 }
 
 // Reset form and show upload section

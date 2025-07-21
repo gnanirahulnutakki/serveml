@@ -1,0 +1,222 @@
+name: Deploy Model to AWS Lambda
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_id:
+        description: 'Deployment ID'
+        required: true
+        type: string
+      model_path:
+        description: 'Path to model file in S3'
+        required: true
+        type: string
+      requirements_path:
+        description: 'Path to requirements file in S3'
+        required: true
+        type: string
+      framework:
+        description: 'ML Framework (sklearn, pytorch, tensorflow)'
+        required: false
+        default: 'sklearn'
+        type: choice
+        options:
+          - sklearn
+          - pytorch
+          - tensorflow
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: serveml-models
+
+jobs:
+  deploy:
+    name: Build and Deploy Model
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Create deployment directory
+      run: |
+        mkdir -p build/${{ inputs.deployment_id }}
+        cd build/${{ inputs.deployment_id }}
+    
+    - name: Download model artifacts from S3
+      run: |
+        cd build/${{ inputs.deployment_id }}
+        aws s3 cp s3://${{ secrets.S3_BUCKET }}/${{ inputs.model_path }} ./model.pkl
+        aws s3 cp s3://${{ secrets.S3_BUCKET }}/${{ inputs.requirements_path }} ./requirements.txt
+        
+        # Copy wrapper and Dockerfile
+        cp ../../backend/templates/wrapper.py ./handler.py
+        cp ../../backend/templates/Dockerfile ./Dockerfile
+    
+    - name: Validate model
+      run: |
+        cd build/${{ inputs.deployment_id }}
+        python -m pip install scikit-learn numpy
+        python -c "
+import pickle
+with open('model.pkl', 'rb') as f:
+    model = pickle.load(f)
+print(f'Model loaded successfully: {type(model).__name__}')
+        "
+    
+    - name: Build Docker image
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ inputs.deployment_id }}
+      run: |
+        cd build/${{ inputs.deployment_id }}
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        echo "Built image: $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+    
+    - name: Run container tests
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ inputs.deployment_id }}
+      run: |
+        # Start container
+        docker run -d --name test-container -p 9000:8080 \
+          $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        
+        # Wait for container to be ready
+        sleep 5
+        
+        # Test health endpoint
+        curl -XPOST "http://localhost:9000/2015-03-31/functions/function/invocations" \
+          -d '{"body": "{\"data\": [5.1, 3.5, 1.4, 0.2]}"}' || true
+        
+        # Stop container
+        docker stop test-container
+        docker rm test-container
+    
+    - name: Push image to ECR
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ inputs.deployment_id }}
+      run: |
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        echo "Pushed image to ECR"
+    
+    - name: Create or Update Lambda Function
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        IMAGE_TAG: ${{ inputs.deployment_id }}
+      run: |
+        FUNCTION_NAME="serveml-${{ inputs.deployment_id }}"
+        IMAGE_URI="$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+        
+        # Check if function exists
+        if aws lambda get-function --function-name $FUNCTION_NAME 2>/dev/null; then
+          echo "Updating existing Lambda function..."
+          aws lambda update-function-code \
+            --function-name $FUNCTION_NAME \
+            --image-uri $IMAGE_URI
+          
+          # Wait for update to complete
+          aws lambda wait function-updated \
+            --function-name $FUNCTION_NAME
+        else
+          echo "Creating new Lambda function..."
+          aws lambda create-function \
+            --function-name $FUNCTION_NAME \
+            --package-type Image \
+            --code ImageUri=$IMAGE_URI \
+            --role ${{ secrets.LAMBDA_ROLE_ARN }} \
+            --timeout 300 \
+            --memory-size 3008 \
+            --environment Variables={MODEL_PATH=/opt/ml/model.pkl}
+          
+          # Wait for function to be active
+          aws lambda wait function-active \
+            --function-name $FUNCTION_NAME
+        fi
+    
+    - name: Create API Gateway (if needed)
+      run: |
+        FUNCTION_NAME="serveml-${{ inputs.deployment_id }}"
+        API_NAME="serveml-api-${{ inputs.deployment_id }}"
+        
+        # Check if API exists
+        API_ID=$(aws apigatewayv2 get-apis --query "Items[?Name=='$API_NAME'].ApiId" --output text)
+        
+        if [ -z "$API_ID" ]; then
+          echo "Creating new API Gateway..."
+          
+          # Create HTTP API
+          API_ID=$(aws apigatewayv2 create-api \
+            --name $API_NAME \
+            --protocol-type HTTP \
+            --target arn:aws:lambda:$AWS_REGION:${{ secrets.AWS_ACCOUNT_ID }}:function:$FUNCTION_NAME \
+            --query ApiId --output text)
+          
+          echo "Created API: $API_ID"
+          
+          # Add Lambda permission
+          aws lambda add-permission \
+            --function-name $FUNCTION_NAME \
+            --statement-id apigateway-invoke \
+            --action lambda:InvokeFunction \
+            --principal apigateway.amazonaws.com \
+            --source-arn "arn:aws:execute-api:$AWS_REGION:${{ secrets.AWS_ACCOUNT_ID }}:$API_ID/*/*"
+        fi
+        
+        # Get API endpoint
+        API_ENDPOINT=$(aws apigatewayv2 get-api \
+          --api-id $API_ID \
+          --query ApiEndpoint --output text)
+        
+        echo "API Endpoint: $API_ENDPOINT"
+        echo "api_endpoint=$API_ENDPOINT" >> $GITHUB_OUTPUT
+    
+    - name: Update deployment status
+      run: |
+        # Update DynamoDB with deployment status
+        aws dynamodb update-item \
+          --table-name serveml-deployments \
+          --key '{"deployment_id": {"S": "${{ inputs.deployment_id }}"}}' \
+          --update-expression "SET #status = :status, endpoint_url = :url, updated_at = :time" \
+          --expression-attribute-names '{"#status": "status"}' \
+          --expression-attribute-values '{
+            ":status": {"S": "active"},
+            ":url": {"S": "${{ steps.create-api.outputs.api_endpoint }}"},
+            ":time": {"S": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}
+          }' || true
+    
+    - name: Test deployed endpoint
+      run: |
+        API_ENDPOINT="${{ steps.create-api.outputs.api_endpoint }}"
+        if [ ! -z "$API_ENDPOINT" ]; then
+          echo "Testing endpoint: $API_ENDPOINT"
+          curl -X POST "$API_ENDPOINT" \
+            -H "Content-Type: application/json" \
+            -d '{"data": [5.1, 3.5, 1.4, 0.2]}' || true
+        fi
+    
+    - name: Clean up on failure
+      if: failure()
+      run: |
+        # Clean up resources if deployment failed
+        echo "Deployment failed, cleaning up resources..."
+        # Add cleanup logic here

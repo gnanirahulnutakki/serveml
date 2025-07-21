@@ -1,0 +1,26 @@
+# Example Terraform variables file
+# Copy this to terraform.tfvars and update with your values
+
+aws_region    = "us-east-1"
+environment   = "dev"
+project_name  = "serveml"
+
+# S3 bucket prefix (must be globally unique)
+s3_bucket_prefix = "serveml-yourname"
+
+# DynamoDB table prefix
+dynamodb_table_prefix = "serveml"
+
+# Lambda configuration
+lambda_memory_size = 3008  # Maximum memory for better performance
+lambda_timeout     = 300   # 5 minutes
+
+# API Gateway
+api_gateway_stage_name = "v1"
+
+# GitHub configuration
+github_owner = "your-github-username"
+github_repo  = "serveml"
+
+# Enable deletion protection for production
+enable_deletion_protection = false

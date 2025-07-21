@@ -1,0 +1,146 @@
+name: Test ServeML
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-backend:
+    name: Test Backend
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Cache Python dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('backend/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      run: |
+        cd backend
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest-cov black flake8
+    
+    - name: Lint with flake8
+      run: |
+        cd backend
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+    
+    - name: Format check with black
+      run: |
+        cd backend
+        black --check .
+    
+    - name: Test model validator
+      run: |
+        cd backend
+        python -m pytest tests/test_model_validator.py -v
+    
+    - name: Test Docker builder
+      run: |
+        cd backend
+        python -m pytest tests/test_docker_builder.py -v
+    
+    - name: Run all tests with coverage
+      run: |
+        cd backend
+        python -m pytest --cov=. --cov-report=xml --cov-report=html
+    
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./backend/coverage.xml
+        flags: backend
+        name: backend-coverage
+
+  test-frontend:
+    name: Test Frontend
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Validate HTML
+      run: |
+        npm install -g html-validate
+        html-validate frontend/*.html || true
+    
+    - name: Validate JavaScript
+      run: |
+        npm install -g eslint
+        cd frontend
+        eslint *.js --fix || true
+
+  test-docker:
+    name: Test Docker Build
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Build backend Docker image
+      run: |
+        cd backend
+        docker build -f Dockerfile.dev -t serveml-backend:test .
+    
+    - name: Test backend container
+      run: |
+        docker run -d --name test-backend -p 8000:8000 serveml-backend:test
+        sleep 5
+        curl -f http://localhost:8000/health || exit 1
+        docker stop test-backend
+        docker rm test-backend
+    
+    - name: Build model serving container
+      run: |
+        # Create test model
+        cd backend
+        python ../create_test_model.py
+        
+        # Copy files for Docker build
+        mkdir -p test-build
+        cp templates/wrapper.py test-build/handler.py
+        cp templates/Dockerfile test-build/
+        cp ../test_models/iris_model.pkl test-build/model.pkl
+        cp ../test_models/requirements.txt test-build/
+        
+        # Build container
+        cd test-build
+        docker build -t serveml-model:test .
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
