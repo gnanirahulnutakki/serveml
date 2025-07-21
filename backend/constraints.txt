@@ -1,0 +1,22 @@
+# Security constraints for indirect dependencies
+# These pins ensure we use secure versions of transitive dependencies
+
+# Core security-sensitive packages
+certifi>=2024.7.4
+charset-normalizer>=3.3.2
+idna>=3.7
+urllib3>=2.2.2
+cryptography>=42.0.8
+werkzeug>=3.0.3
+setuptools>=70.0.0
+
+# Additional security constraints
+markupsafe>=2.1.5  # Used by Jinja2
+pyyaml>=6.0.1      # Often has vulnerabilities
+sqlalchemy>=2.0.31 # If used
+pillow>=10.3.0     # Image processing
+lxml>=5.2.2        # XML processing
+
+# Ensure latest security patches
+wheel>=0.43.0
+pip>=24.0
