@@ -19,4 +19,4 @@ mkdocs-material==9.5.6
 
 # Development tools
 ipython==8.20.0
-watchdog==3.0.0
+watchdog==6.0.0
