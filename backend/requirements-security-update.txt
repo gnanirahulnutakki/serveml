@@ -1,0 +1,26 @@
+# Constraint file for security
+-c constraints.txt
+
+# Updated versions to fix security vulnerabilities
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+python-multipart==0.0.18  # Updated from 0.0.9 - fixes DoS vulnerability
+pydantic==2.7.4
+pydantic-settings==2.3.4
+python-jose[cryptography]==3.4.0  # Updated from 3.3.0 - fixes algorithm confusion and JWT bomb
+passlib[bcrypt]==1.7.4
+boto3==1.34.144
+scikit-learn==1.5.1
+numpy==2.0.0
+jinja2==3.1.6  # Updated from 3.1.4 - fixes multiple RCE vulnerabilities
+
+# Additional security-critical direct dependencies
+certifi>=2024.7.4
+cryptography>=42.0.8
+urllib3>=2.2.2
+# Updated commonly vulnerable dependencies
+starlette==0.47.2  # Updated from 0.37.2 - fixes DoS vulnerabilities
+werkzeug>=3.0.3
+pyyaml>=6.0.1
+aiohttp>=3.9.5
+gunicorn>=22.0.0
