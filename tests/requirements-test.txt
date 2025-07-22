@@ -6,7 +6,7 @@ pytest-mock==3.14.0
 pytest-timeout==2.3.1
 
 # API testing
-httpx==0.27.0
+httpx==0.28.1
 requests==2.32.4  # Updated from 2.32.3 - fixes GHSA-9hjg-9r4m-mvj7
 
 # AWS mocking
