@@ -18,7 +18,7 @@ locust==2.20.1
 
 # Performance analysis
 matplotlib==3.8.2
-numpy==1.26.3
+numpy==2.0.2
 
 # Test data generation
 faker==22.2.0
